@@ -157,6 +157,8 @@ class HookedTransformer(HookedRootModule):
         # Helper variable to store a small (10K-20K) dataset of training data. Empty by default, can be loaded with
         # load_sample_training_dataset
         self.dataset = None
+        
+        self.persisted_past_kv_cache = None
 
         # Gives each module a parameter with its name (relative to this root module)
         # Needed for HookPoints to work
@@ -1416,6 +1418,7 @@ class HookedTransformer(HookedRootModule):
         freq_penalty: float = 0.0,
         num_return_sequences: int = 1,
         use_past_kv_cache: bool = True,
+        persist_past_kv_cache: bool = False,
         prepend_bos: Optional[bool] = None,
         return_type: Optional[str] = "input",
         stop_criterion: Optional[Callable] = None,   # don't confuse this with HuggingFace's stopping_criteria
@@ -1478,10 +1481,16 @@ class HookedTransformer(HookedRootModule):
         batch_size, ctx_length = tokens.shape
         device = devices.get_device_for_block_index(0, self.cfg)
         tokens = tokens.to(device)
+        
+            
         if use_past_kv_cache:
-            past_kv_cache = HookedTransformerKeyValueCache.init_cache(
-                self.cfg, self.cfg.device, batch_size
-            )
+            if persist_past_kv_cache and self.persisted_past_kv_cache is not None:
+                # We're using a persistent cache, and it's already been initialized
+                past_kv_cache = self.persisted_past_kv_cache
+            else:
+                past_kv_cache = HookedTransformerKeyValueCache.init_cache(
+                    self.cfg, self.cfg.device, batch_size
+                )
         else:
             past_kv_cache = None
 
@@ -1570,11 +1579,14 @@ class HookedTransformer(HookedRootModule):
 
             if stop_at_eos and finished_sequences.all():
                 break
-
+            
             if new_token_callback is not None:
                 new_token_callback(tokens, self)
             if stop_criterion is not None and stop_criterion(tokens, self):
                 break
+
+        if persist_past_kv_cache:
+            self.persisted_past_kv_cache = past_kv_cache
 
         if return_type == "str":
             if prepend_bos:
