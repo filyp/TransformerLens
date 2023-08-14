@@ -1,6 +1,6 @@
 import logging
 from functools import lru_cache
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union, overload
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union, Callable, overload
 
 import einops
 import numpy as np
@@ -1418,6 +1418,8 @@ class HookedTransformer(HookedRootModule):
         use_past_kv_cache: bool = True,
         prepend_bos: Optional[bool] = None,
         return_type: Optional[str] = "input",
+        stop_criterion: Optional[Callable] = None,   # don't confuse this with HuggingFace's stopping_criteria
+        new_token_callback: Optional[Callable] = None,
         verbose: bool = True,
     ) -> Union[Int[torch.Tensor, "batch pos_plus_new_tokens"], str]:
         """
@@ -1567,6 +1569,11 @@ class HookedTransformer(HookedRootModule):
             tokens = torch.cat([tokens, sampled_tokens.unsqueeze(-1)], dim=-1)
 
             if stop_at_eos and finished_sequences.all():
+                break
+
+            if new_token_callback is not None:
+                new_token_callback(tokens, self)
+            if stop_criterion is not None and stop_criterion(tokens, self):
                 break
 
         if return_type == "str":
