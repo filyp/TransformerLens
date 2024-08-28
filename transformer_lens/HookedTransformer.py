@@ -11,7 +11,7 @@ a deeper understanding of the internal workings of transformers like GPT-2.
 
 import logging
 import os
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast, overload
+from typing import Dict, List, NamedTuple, Optional, Tuple, Union, Callable, cast, overload
 
 import einops
 import numpy as np
@@ -380,8 +380,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
+    ) -> Loss: ...
 
     @overload
     def forward(
@@ -397,8 +396,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Loss:
-        ...
+    ) -> Loss: ...
 
     @overload
     def forward(
@@ -414,8 +412,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> Tuple[Float[torch.Tensor, "batch pos d_vocab"], Loss]:
-        ...
+    ) -> Tuple[Float[torch.Tensor, "batch pos d_vocab"], Loss]: ...
 
     @overload
     def forward(
@@ -431,8 +428,7 @@ class HookedTransformer(HookedRootModule):
         attention_mask: Optional[torch.Tensor] = None,  # [batch pos]
         stop_at_layer: Optional[int] = None,
         past_kv_cache: Optional[HookedTransformerKeyValueCache] = None,
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def forward(
         self,
@@ -614,14 +610,12 @@ class HookedTransformer(HookedRootModule):
     @overload
     def run_with_cache(
         self, *model_args, return_cache_object: Literal[True] = True, **kwargs
-    ) -> Tuple[Output, ActivationCache]:
-        ...
+    ) -> Tuple[Output, ActivationCache]: ...
 
     @overload
     def run_with_cache(
         self, *model_args, return_cache_object: Literal[False], **kwargs
-    ) -> Tuple[Output, Dict[str, torch.Tensor]]:
-        ...
+    ) -> Tuple[Output, Dict[str, torch.Tensor]]: ...
 
     def run_with_cache(
         self, *model_args, return_cache_object=True, remove_batch_dim=False, **kwargs
@@ -1998,6 +1992,10 @@ class HookedTransformer(HookedRootModule):
         prepend_bos: Optional[bool] = USE_DEFAULT_VALUE,
         padding_side: Optional[Literal["left", "right"]] = USE_DEFAULT_VALUE,
         return_type: Optional[str] = "input",
+        stop_criterion: Optional[
+            Callable
+        ] = None,  # don't confuse this with HuggingFace's stopping_criteria
+        new_token_callback: Optional[Callable] = None,
         verbose: bool = True,
     ) -> Union[Int[torch.Tensor, "batch pos_plus_new_tokens"], str]:
         """Sample Tokens from the Model.
@@ -2171,6 +2169,11 @@ class HookedTransformer(HookedRootModule):
                 tokens = torch.cat([tokens, sampled_tokens.unsqueeze(-1)], dim=-1)
 
                 if stop_at_eos and finished_sequences.all():
+                    break
+
+                if new_token_callback is not None:
+                    new_token_callback(tokens, self)
+                if stop_criterion is not None and stop_criterion(tokens, self):
                     break
 
             if return_type == "str":
